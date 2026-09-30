@@ -20,10 +20,12 @@ import (
 	"context"
 
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -72,6 +74,11 @@ func (c *NodeController) Register(ctx context.Context, m manager.Manager) error 
 	return controllerruntime.NewControllerManagedBy(m).
 		Named(c.Name()).
 		For(&v1.Node{}).
+		// A CSINode shares its name with its Node and carries the driver volume limits that cluster state caches per node.
+		// Reconcile the Node when its CSINode changes so limits are refreshed promptly rather than on the next resync.
+		Watches(&storagev1.CSINode{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, o client.Object) []reconcile.Request {
+			return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(o)}}
+		})).
 		WithOptions(controller.Options{MaxConcurrentReconciles: utilscontroller.LinearScaleReconciles(utilscontroller.CPUCount(ctx), minReconciles, maxReconciles)}).
 		Complete(c)
 }
